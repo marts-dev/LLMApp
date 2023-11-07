@@ -49,6 +49,7 @@ def load_chain(wandb_run: wandb.run, vector_store: Chroma, openai_api_key: str):
         model_name=wandb_run.config.model_name,
         temperature=wandb_run.config.chat_temperature,
         max_retries=wandb_run.config.max_fallback_retries,
+        request_timeout=180.0
     )
     chat_prompt_dir = wandb_run.use_artifact(
         wandb_run.config.chat_prompt_artifact, type="prompt"

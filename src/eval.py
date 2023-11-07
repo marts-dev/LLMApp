@@ -9,15 +9,10 @@ from chain import load_chain, load_vector_store
 from config import default_config
 from langchain.chains import ConversationalRetrievalChain
 from langchain.chat_models import ChatOpenAI
-from langchain.evaluation.qa import QAEvalChain
+from langchain.evaluation.qa.eval_chain import QAEvalChain
 from prompts import load_eval_prompt
 from tqdm import tqdm
 from dotenv import dotenv_values
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential, # for exponential backoff
-)  
 
 
 def load_eval_dataset(config: SimpleNamespace) -> pd.DataFrame:
@@ -32,10 +27,9 @@ def load_eval_dataset(config: SimpleNamespace) -> pd.DataFrame:
     # download artifact
     artifact_dir = Path(artifact.download())
     # load data
-    eval_dataset = pd.read_csv(artifact_dir / "generated_examples.csv")
+    eval_dataset = pd.read_csv(os.path.join(artifact_dir, "generated_examples.csv"))
     return eval_dataset
 
-@retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def generate_answers(
     eval_dataset: pd.DataFrame, qa_chain: ConversationalRetrievalChain
 ) -> pd.DataFrame:
@@ -55,7 +49,6 @@ def generate_answers(
     eval_dataset.to_csv("eval_with_answers.csv", index=False)
     return eval_dataset
 
-@retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(6))
 def evaluate_answers(
     eval_dataset: pd.DataFrame, config: SimpleNamespace
 ) -> pd.DataFrame:
@@ -90,7 +83,7 @@ def evaluate_answers(
             }
         )
     graded_outputs = eval_chain.evaluate(examples, predictions)
-    eval_dataset["model_score"] = [x.get("text", "None") for x in graded_outputs]
+    eval_dataset["model_score"] = [x.get("results", "None") for x in graded_outputs]
     return eval_dataset
 
 
@@ -109,6 +102,15 @@ def log_results(eval_dataset: pd.DataFrame) -> None:
     wandb.log_artifact(artifact)
     wandb.log({"eval_results": wandb.Table(dataframe=eval_dataset)})
 
+def eval():
+    os.environ['OPENAI_API_KEY'] = dotenv_values('../.env')['OPENAI_API_KEY']
+    with wandb.init(project=default_config.project, config=default_config, job_type="eval") as run:
+        eval_dataset = load_eval_dataset(default_config)
+        vector_store = load_vector_store(run, os.environ["OPENAI_API_KEY"])
+        qa_chain = load_chain(run, vector_store, os.environ["OPENAI_API_KEY"])
+        eval_dataset = generate_answers(eval_dataset, qa_chain)
+        eval_dataset = evaluate_answers(eval_dataset, default_config)
+        log_results(eval_dataset)
 
 if __name__ == "__main__":
     os.environ['OPENAI_API_KEY'] = dotenv_values('../.env')['OPENAI_API_KEY']

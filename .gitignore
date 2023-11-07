@@ -153,3 +153,4 @@ cython_debug/
 src/docs_sample
 src/vector_store
 src/wandb
+src/artifacts
